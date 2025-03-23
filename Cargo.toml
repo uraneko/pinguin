@@ -1,0 +1,32 @@
+[package]
+name = "ebony"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+
+
+[features]
+default = []
+ip = []
+tcp = []
+udp = []
+
+# http 
+http11 = []
+https = []
+http2 = []
+http3 = []
+quic = []
+
+# text chat
+mqtt = []
+xmpp = []
+
+# voice chat 
+
+# ? 
+sip = []
+rtp = []
+turn = []
+stun = []
