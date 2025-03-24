@@ -7,6 +7,7 @@ const MAX_DATA_LEN: u32 = u32::MAX;
 #[derive(Debug)]
 pub enum PNGError {
     InvalidSignature,
+    ChunkTypeMismatch(String),
 }
 
 use std::vec::IntoIter;
@@ -82,6 +83,10 @@ impl PNGChunks {
 
     pub fn chunks(&self) -> &[Chunk] {
         self.state.as_slice()
+    }
+
+    pub fn pop(&mut self) -> Chunk {
+        self.state.pop().unwrap()
     }
 
     pub fn names(&self) -> Vec<String> {
@@ -173,6 +178,68 @@ impl std::fmt::Display for Chunk {
     }
 }
 
+pub trait ProcessData<T>
+where
+    Self: PNGChunk,
+    T: ChunkData,
+{
+    fn type_match(&self) -> bool {
+        T::ty_lit() == self.ty_lit()
+    }
+
+    fn process(&self) -> Result<T, PNGError>;
+}
+
+impl ProcessData<IHDRData> for Chunk {
+    fn type_match(&self) -> bool {
+        IHDRData::ty_lit() == &self.ty_lit()
+    }
+
+    fn process(&self) -> Result<IHDRData, PNGError> {
+        if !self.type_match() {
+            return Err(PNGError::ChunkTypeMismatch(format!(
+                "trait ProcessData is not implemeted for chunk type {} with return type {}Data",
+                self.ty_lit(),
+                "IHDR"
+            )));
+        }
+        let mut data = self.data().into_iter();
+
+        Ok(IHDRData {
+            width: stream_octets_and_u32(&mut data),
+            height: stream_octets_and_u32(&mut data),
+            bit_depth: *data.next().unwrap(),
+            color_type: *data.next().unwrap(),
+            compression_method: *data.next().unwrap(),
+            filter_method: *data.next().unwrap(),
+            interlace_method: *data.next().unwrap(),
+        })
+    }
+}
+
+pub trait PNGChunk {
+    fn ty_lit(&self) -> String;
+}
+
+impl PNGChunk for Chunk {
+    fn ty_lit(&self) -> String {
+        self.type_
+            .into_iter()
+            .map(|b| b as char)
+            .collect::<String>()
+    }
+}
+
+pub trait ChunkData {
+    fn ty_lit() -> &'static str;
+}
+
+impl ChunkData for IHDRData {
+    fn ty_lit() -> &'static str {
+        "IHDR"
+    }
+}
+
 #[derive(Debug)]
 pub struct IHDRData {
     width: u32,
@@ -187,21 +254,21 @@ pub struct IHDRData {
     interlace_method: u8,
 }
 
-impl IHDRData {
-    pub fn from_data(data: &[u8]) -> Self {
-        let mut data = data.into_iter();
-
-        Self {
-            width: stream_octets_and_u32(&mut data),
-            height: stream_octets_and_u32(&mut data),
-            bit_depth: *data.next().unwrap(),
-            color_type: *data.next().unwrap(),
-            compression_method: *data.next().unwrap(),
-            filter_method: *data.next().unwrap(),
-            interlace_method: *data.next().unwrap(),
-        }
-    }
-}
+// impl IHDRData {
+//     pub fn from_data(data: &[u8]) -> Self {
+//         let mut data = data.into_iter();
+//
+//         Self {
+//             width: stream_octets_and_u32(&mut data),
+//             height: stream_octets_and_u32(&mut data),
+//             bit_depth: *data.next().unwrap(),
+//             color_type: *data.next().unwrap(),
+//             compression_method: *data.next().unwrap(),
+//             filter_method: *data.next().unwrap(),
+//             interlace_method: *data.next().unwrap(),
+//         }
+//     }
+// }
 
 fn stream_octets_and_u32(octets: &mut std::slice::Iter<u8>) -> u32 {
     (0..4)
