@@ -4,10 +4,6 @@
 
 const MAX_DATA_LEN: u32 = u32::MAX;
 
-pub fn dump_raw(value: impl AsRef<str> + Into<String>) -> Vec<u8> {
-    std::fs::read(value.as_ref()).unwrap()
-}
-
 #[derive(Debug)]
 pub enum PNGError {
     InvalidSignature,
@@ -15,33 +11,98 @@ pub enum PNGError {
 
 use std::vec::IntoIter;
 
-pub fn validate_signature(bytes: Vec<u8>) -> Result<IntoIter<u8>, PNGError> {
-    let mut bytes = bytes.into_iter();
-    if <Vec<u8> as TryInto<[u8; 8]>>::try_into(
-        (0..8)
-            .map(|_| bytes.next().unwrap_or(0))
-            .collect::<Vec<u8>>(),
-    )
-    .unwrap()
-        != [137, 80, 78, 71, 13, 10, 26, 10]
-    {
-        return Err(PNGError::InvalidSignature);
+#[derive(Debug)]
+pub struct RawPNG {
+    state: IntoIter<u8>,
+    len: usize,
+}
+
+impl RawPNG {
+    pub fn from_file_name(file: &str) -> Result<Self, PNGError> {
+        let state = std::fs::read(file).unwrap();
+        let mut len = state.len();
+
+        let mut state = state.into_iter();
+        if let Err(e) = RawPNG::validate_signature(&mut state) {
+            return Err(e);
+        }
+        len = len - 8;
+
+        Ok(Self { state, len })
     }
 
-    Ok(bytes)
+    fn validate_signature(iter: &mut IntoIter<u8>) -> Result<(), PNGError> {
+        if <Vec<u8> as TryInto<[u8; 8]>>::try_into(
+            (0..8)
+                .map(|_| iter.next().unwrap_or(0))
+                .collect::<Vec<u8>>(),
+        )
+        .unwrap()
+            != [137, 80, 78, 71, 13, 10, 26, 10]
+        {
+            return Err(PNGError::InvalidSignature);
+        }
+
+        Ok(())
+    }
+
+    fn next(&mut self) -> Option<u8> {
+        self.state.next()
+    }
+
+    fn into_iter(self) -> IntoIter<u8> {
+        self.state
+    }
+
+    fn len(&self) -> usize {
+        self.len
+    }
+}
+
+pub struct PNGChunks {
+    state: Vec<Chunk>,
+}
+
+impl PNGChunks {
+    pub fn from_raw(raw: RawPNG) -> Self {
+        let mut len = raw.len();
+        let mut iter = raw.into_iter();
+        // WARN brittle error handling
+        let mut chunks = vec![];
+        while len > 0 {
+            chunks.push(Chunk::from_iter(&mut iter, &mut len));
+        }
+
+        Self { state: chunks }
+    }
+
+    pub fn len(&self) -> usize {
+        self.state.len()
+    }
+
+    pub fn chunks(&self) -> &[Chunk] {
+        self.state.as_slice()
+    }
+
+    pub fn names(&self) -> Vec<String> {
+        self.chunks()
+            .into_iter()
+            .map(|chunk| chunk.type_name())
+            .collect::<Vec<String>>()
+    }
 }
 
 // png header chunk
 #[derive(Debug)]
-pub struct IHDR {
+pub struct Chunk {
     len: [u8; 4],
     type_: [u8; 4],
     data: Vec<u8>,
     crc: [u8; 4],
 }
 
-impl IHDR {
-    pub fn from_iter(iter: &mut IntoIter<u8>) -> Self {
+impl Chunk {
+    pub fn from_iter(iter: &mut IntoIter<u8>, count: &mut usize) -> Self {
         let len: [u8; 4] = (0..4)
             .map(|_| iter.next().unwrap())
             .collect::<Vec<u8>>()
@@ -54,7 +115,9 @@ impl IHDR {
             .try_into()
             .unwrap();
 
-        let data = (0..size_from_arr(len))
+        let datalen = size_from_arr(len);
+
+        let data = (0..datalen)
             .map(|_| iter.next().unwrap())
             .collect::<Vec<u8>>();
 
@@ -63,6 +126,8 @@ impl IHDR {
             .collect::<Vec<u8>>()
             .try_into()
             .unwrap();
+
+        *count -= (4 * 3) + datalen as usize;
 
         Self {
             len,
@@ -75,6 +140,10 @@ impl IHDR {
     pub fn data(&self) -> &[u8] {
         self.data.as_slice()
     }
+
+    pub fn type_name(&self) -> String {
+        self.ty().into_iter().map(|b| b as char).collect::<String>()
+    }
 }
 
 fn size_from_arr(arr: [u8; 4]) -> u32 {
@@ -85,7 +154,7 @@ fn size_from_arr(arr: [u8; 4]) -> u32 {
     })
 }
 
-impl std::fmt::Display for IHDR {
+impl std::fmt::Display for Chunk {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -146,12 +215,10 @@ fn stream_octets_and_u32(octets: &mut std::slice::Iter<u8>) -> u32 {
         })
 }
 
-pub struct IDAT {}
-
-pub struct IEND {}
-
-trait ChunkProps {
-    fn ty(&self) -> [u8; 4];
+impl Chunk {
+    fn ty(&self) -> [u8; 4] {
+        self.type_
+    }
 
     fn is_critical(&self) -> bool {
         self.ty()[0] & 16 == 0
@@ -181,8 +248,13 @@ trait ChunkProps {
     }
 }
 
-impl ChunkProps for IHDR {
-    fn ty(&self) -> [u8; 4] {
-        self.type_
-    }
-}
+// TODO no need for a trait
+// all chunks follow the same storage strategy
+// then first chunkify the raw data
+
+// DOCS PLTE chunk
+// WARN when color type == 3 the PLTE chunk must appear
+// WARN when color type == 2 || 6 PLTE chunk could appaer
+// WARN when color type == 0 || 4 PLTE chunk must not appear
+// NOTE must precede the 1st IDAT chunk
+// NOTE there must be no more than one PLTE chunk
