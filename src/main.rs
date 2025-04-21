@@ -1,32 +1,29 @@
-use ebony::{IHDR, bkGD, cHRM, pHYs, tEXt};
-use ebony::{PNGChunks, RawPNG};
+use ebony::{IDAT, IHDR, bKGD, cHRM, pHYs, tEXt};
+use ebony::{PNGChunks, PNGData, RawPNG};
 
-const TEST_FILE: &str = "test3.png";
+const TEST_FILE: &str = "samples/test3.png";
+
+// TODO all the chunks and all that shouldnt be exposed to a user of the lib
+// actually expose fine control of chunks with a feature
+// otherwise
 
 fn main() {
     let mut raw = RawPNG::from_file_name(TEST_FILE).unwrap();
     let mut chunks = PNGChunks::from_raw(raw);
+    panic!(
+        "{:#?}",
+        chunks
+            .chunks()
+            .into_iter()
+            .map(|c| c.crc())
+            .collect::<Vec<[u8; 4]>>()
+    );
 
     println!("{:?}", {
-        let mut cn = chunks.names();
-        cn.dedup();
-        cn
+        let mut d = chunks.names();
+        d.dedup();
+        d
     });
-    let chunks = chunks.chunks();
-    println!("{:#?}", chunks[0].chunk_data::<IHDR>(None).unwrap());
-    let ct = 2;
-    println!("{:#?}", chunks[1].chunk_data::<cHRM>(None).unwrap());
-    println!(
-        "bkGD::{:#?}",
-        chunks[2].chunk_data::<bkGD>(Some(ct)).unwrap()
-    );
-    println!("{:#?}", chunks[3].chunk_data::<pHYs>(None).unwrap());
-    let text = chunks[chunks.len() - 2].chunk_data::<tEXt>(None).unwrap();
-    println!("{:?}", text.parse());
-
-    // let ihdr_data: IHDRData = chunks.chunks().iter().next().unwrap().process().unwrap();
-    // println!("{:#?}", ihdr_data);
-    //
-    // let chrm_data: cHRMData = chunks.chunks().iter().next().unwrap().process().unwrap();
-    // println!("{:#?}", chrm_data);
+    let chunks = PNGData::new(chunks);
+    println!("{:#?}", chunks);
 }
