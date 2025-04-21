@@ -4,17 +4,6 @@ use std::slice::Iter;
 
 use chunk_data::ChunkData;
 
-#[derive(Debug, ChunkData)]
-pub struct IHDR {
-    width: u32,
-    height: u32,
-    bit_depth: u8,
-    color_type: u8,
-    compression_method: u8,
-    filter_method: u8,
-    interlace_method: u8,
-}
-
 struct ChunkProcess<'a> {
     color_type: Option<u8>,
     data: &'a [u8],
@@ -58,6 +47,70 @@ impl Chunk {
 }
 
 #[derive(Debug, ChunkData)]
+pub struct IHDR {
+    width: u32,
+    height: u32,
+    bit_depth: u8,
+    color_type: u8,
+    compression_method: u8,
+    filter_method: u8,
+    interlace_method: u8,
+}
+
+impl IHDR {
+    pub(super) fn color_type(&self) -> u8 {
+        self.color_type
+    }
+}
+#[derive(ChunkData)]
+pub struct IDAT {
+    data: Vec<u8>,
+}
+
+impl std::fmt::Debug for IDAT {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.len())
+    }
+}
+
+impl IDAT {
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    pub fn decode(&self, height: u32, width: u32) {
+        let pixels = self
+            .data
+            .chunks(height as usize)
+            .map(|c| c.chunks(width as usize));
+        todo!()
+    }
+
+    fn filter(&self) {}
+    fn inerlace(&self) {}
+    fn compress(&self) {}
+}
+// this chunk has an empty data field; so no fields for this struct
+#[derive(Debug, ChunkData)]
+pub struct IEND {}
+
+// this chunk
+// must appear for color type 3
+// may appear for color type 2 and 6
+// must NOT appear for color type 0 and 4
+#[derive(Debug, PartialEq, ChunkData)]
+pub struct PLTE {
+    // range from 1 to 256
+    entries: Vec<[u8; 3]>,
+}
+
+impl PLTE {
+    pub fn sample(entries: Vec<[u8; 3]>) -> Self {
+        Self { entries }
+    }
+}
+
+#[derive(Debug, ChunkData)]
 pub struct cHRM {
     white_point_x: u32,
     white_point_y: u32,
@@ -94,7 +147,7 @@ impl cHRM {
 }
 
 #[derive(Debug, ChunkData)]
-pub enum bkGD {
+pub enum bKGD {
     // add derive attribute :value from ct // would deprecate EnumChunk trait
     #[color_type(0)]
     ColorType0 { gray: u16 },
@@ -109,7 +162,7 @@ pub enum bkGD {
 }
 
 #[derive(Debug, ChunkData)]
-struct gAMA {
+pub struct gAMA {
     image_gamma: u32,
 }
 
@@ -122,7 +175,7 @@ impl gAMA {
 // this reflects the palette chunk
 // must be between plte and first idat
 #[derive(Debug, ChunkData)]
-struct hIST {
+pub struct hIST {
     entries: Vec<u16>,
 }
 
@@ -134,11 +187,55 @@ pub struct pHYs {
     unit_specifier: u8,
 }
 
+// must not contain more alpha values than there are palette PLTE entries
+// ut can contain fewer, in which case the unspecified values all default to 255
+// this chunk must come between plte and first idat
+#[derive(Debug, ChunkData)]
+pub enum tRNS {
+    #[color_type(3)]
+    AlphaValues(Vec<u8>),
+    #[color_type(0)]
+    // from 0 to (2^bitdepth) - 1
+    Gray(u16),
+    #[color_type(2)]
+    RGB { red: u16, green: u16, blue: u16 },
+    // color type 4 and 6 are prohibited since a full alpha channel is present in those cases
+}
+
+// should use UTC rather than GMT
+#[derive(Debug, ChunkData)]
+pub struct tIME {
+    year: u16,
+    // 1-12
+    month: u8,
+    // 1-31
+    day: u8,
+    // 0-23
+    hour: u8,
+    // 0-59
+    minute: u8,
+    // 0-60 (60 for leap secondl not 61)
+    second: u8,
+}
+
+#[derive(Debug, ChunkData)]
+pub enum sBIT {
+    #[color_type(0)]
+    ColorType0(u8),
+    #[color_type(2)]
+    ColorType2 { r: u8, g: u8, b: u8 },
+    #[color_type(3)]
+    ColorType3 { r: u8, g: u8, b: u8 },
+    #[color_type(4)]
+    ColorType4 { grayscale: u8, alpha: u8 },
+    #[color_type(6)]
+    ColorType6 { r: u8, g: u8, b: u8, a: u8 },
+}
+
 #[derive(Debug, ChunkData)]
 pub struct tEXt {
     // #[len(>= 1, <= 79)]
     #[delimiter(0)]
-    #[color_type(2)]
     keyword: Vec<u8>,
     text: Vec<u8>,
 }
@@ -160,23 +257,15 @@ impl tEXt {
     }
 }
 
+// same as tEXt chunk but zTXT makes use of compression
+// recommended over tEXt for storing large chunks of text data
 #[derive(Debug, ChunkData)]
-pub struct IEND {}
-
-#[derive(Debug, ChunkData)]
-enum sBIT {
-    #[color_type(0)]
-    ColorType0(u8),
-    #[color_type(2)]
-    ColorType2 { r: u8, g: u8, b: u8 },
-    #[color_type(3)]
-    ColorType3 { r: u8, g: u8, b: u8 },
-    #[color_type(4)]
-    ColorType4 { grayscale: u8, alpha: u8 },
-    #[color_type(6)]
-    ColorType6 { r: u8, g: u8, b: u8, a: u8 },
+pub struct zTXT {
+    #[delimiter(0)]
+    keyword: Vec<u8>,
+    compression_method: u8,
+    compressed_text: Vec<u8>,
 }
-
 fn stream_octets_to_u32(octets: &mut Iter<u8>) -> u32 {
     (0..4)
         .into_iter()
@@ -247,5 +336,21 @@ fn stream_vecu16(octets: &mut Iter<u8>, delim: Option<u8>) -> Vec<u16> {
                 mask
             })
             .collect::<Vec<u16>>(),
+    }
+}
+
+fn stream_vec_arr_u8_3(octets: &mut Iter<u8>, delim: Option<u8>) -> Vec<[u8; 3]> {
+    match delim {
+        Some(delim) => octets
+            .take_while(|b| **b != delim)
+            .collect::<Vec<&u8>>()
+            .chunks(3)
+            .map(|b| [*b[0], *b[1], *b[2]])
+            .collect::<Vec<[u8; 3]>>(),
+        None => octets
+            .collect::<Vec<&u8>>()
+            .chunks(3)
+            .map(|b| [*b[0], *b[1], *b[2]])
+            .collect::<Vec<[u8; 3]>>(),
     }
 }

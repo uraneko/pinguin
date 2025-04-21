@@ -11,6 +11,25 @@ pub struct Chunk {
 }
 
 impl Chunk {
+    pub fn sample(len: [u8; 4], type_: [u8; 4], data: Vec<u8>, crc: [u8; 4]) -> Self {
+        Self {
+            len,
+            type_,
+            data,
+            crc,
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.len.into_iter().fold(0u32, |mut mask, b| {
+            mask <<= 8;
+            mask |= b as u32;
+            mask
+        }) as usize
+    }
+}
+
+impl Chunk {
     // returns a new chunk from an iterator of bytes (octets)
     pub fn from_iter(iter: &mut IntoIter<u8>, count: &mut usize) -> Self {
         let len: [u8; 4] = (0..4)
@@ -55,6 +74,10 @@ impl Chunk {
     // returns the chunk type as a human readable string
     pub fn type_name(&self) -> String {
         self.ty().into_iter().map(|b| b as char).collect::<String>()
+    }
+
+    pub fn crc(&self) -> [u8; 4] {
+        self.crc
     }
 }
 
