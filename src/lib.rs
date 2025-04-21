@@ -7,21 +7,21 @@ use quote::quote;
 use syn::punctuated::{Pair, Punctuated};
 use syn::token::{Comma, PathSep};
 use syn::{
-    AngleBracketedGenericArguments, Attribute, Data, Field, Fields, FieldsNamed, FieldsUnnamed,
-    GenericArgument, Ident, Meta, Path, PathArguments, PathSegment, Type, TypePath, Variant,
+    AngleBracketedGenericArguments, Attribute, Data, Expr, Field, Fields, FieldsNamed,
+    FieldsUnnamed, GenericArgument, Ident, Lit, Meta, Path, PathArguments, PathSegment, Type,
+    TypePath, Variant,
 };
 use syn::{DeriveInput, parse_macro_input, parse_str};
 
 #[proc_macro_derive(ChunkData, attributes(color_type, len, delimiter))]
 pub fn derive(input: TS) -> TS {
     let ast: DeriveInput = parse_macro_input!(input);
-    eprintln!("{:#?}", ast);
 
     let name = ast.ident;
     match resolve_data_kind(&ast.data) {
         "struct" => struct_derive(name, ast.data),
         "enum" => enum_derive(name, ast.data),
-        "union" => panic!("im sorry, I thought union was an arcane type"),
+        "union" => panic!("im sorry, I dont support union types"),
         _ => panic!("no such data variant"),
     }
 }
@@ -39,6 +39,7 @@ fn struct_derive(name: Ident, data: Data) -> TS {
     let fields = parse_fields(fields);
 
     quote! {
+        #[automatically_derived]
         impl<'a> TryFrom<ChunkProcess<'a>> for #name {
             type Error = PNGError;
             fn try_from(mut value: ChunkProcess<'a>) -> Result<Self, Self::Error> {
@@ -215,19 +216,36 @@ fn pathseg_from_ty(ty: Type) -> Option<Pair<PathSegment, PathSep>> {
 
 fn parse_field_ty(ty: Type, attrs: Vec<(Ident, Literal)>) -> TS2 {
     let ty = pathseg_from_ty(ty).unwrap().into_value();
-    let arg = match &ty.ident.to_string()[..] == "Vec" {
+    let arg: Option<String> = match &ty.ident.to_string()[..] == "Vec" {
         true => Some({
             let PathArguments::AngleBracketed(abga) = ty.arguments else {
                 unreachable!("only handling vecs of u8/16 for now")
             };
             let AngleBracketedGenericArguments { mut args, .. } = abga;
             let GenericArgument::Type(ga) = args.pop().unwrap().into_value() else {
-                panic!()
+                unreachable!("png_chunk_derive_macro:{}", line!())
             };
-            let Type::Path(tp) = ga else { panic!() };
-            let Path { mut segments, .. } = tp.path;
+            if let Type::Path(tp) = ga {
+                let Path { mut segments, .. } = tp.path;
 
-            segments.pop().unwrap().into_value()
+                segments.pop().unwrap().into_value().ident.to_string()
+            } else if let Type::Array(ta) = ga {
+                let Type::Path(tp) = *ta.elem else { panic!() };
+                let TypePath { path, .. } = tp;
+                let mut seg = path.segments.into_iter();
+                let ty = seg.next().unwrap();
+                let PathSegment { ident, .. } = ty;
+                let elem = ident.to_string();
+
+                let len = ta.len;
+                let Expr::Lit(el) = len else { panic!() };
+                let Lit::Int(li) = el.lit else { panic!() };
+                let len = li.base10_digits();
+
+                format!("[{}; {}]", elem, len)
+            } else {
+                panic!("png_chunk_derive_macro:{}", line!())
+            }
         }),
         false => None,
     };
@@ -247,10 +265,11 @@ fn parse_field_ty(ty: Type, attrs: Vec<(Ident, Literal)>) -> TS2 {
         "u16" => quote! { stream_octets_to_u16(&mut value) },
         "u32" => quote! { stream_octets_to_u32(&mut value) },
         "u64" => quote! { stream_octets_to_u64(&mut value) },
-        "Vec" => match &arg.unwrap().ident.to_string()[..] {
+        "Vec" => match &arg.unwrap()[..] {
             "u8" => quote! { stream_vecu8(&mut value, #delim)},
             "u16" => quote! { stream_vecu16(&mut value, #delim)},
-            v => panic!("unprepared to handle vec of {}, expected u8/16", v),
+            "[u8; 3]" => quote! { stream_vec_arr_u8_3(&mut value, #delim)},
+            v => panic!("unprepared to handle vec of {}, expected u8/16/[u8; 3]", v),
         },
         ty => panic!("i was not prepared to handle the {} type", ty),
     }
@@ -267,6 +286,3 @@ fn parse_fields(fields: Vec<(Ident, Type, Vec<(Ident, Literal)>)>) -> Vec<TS2> {
         .map(|(i, t, a)| parse_field(i, t, a))
         .collect()
 }
-
-type KnownField = (Ident, Type, MacroAttr);
-type MacroAttr = Vec<(Ident, Literal)>;
