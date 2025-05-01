@@ -4,6 +4,10 @@ use std::vec::IntoIter;
 
 mod chunks;
 mod data;
+mod idat;
+mod zlib;
+
+pub use zlib::ZLib;
 
 pub use chunks::Chunk;
 
@@ -67,6 +71,7 @@ impl RawPNG {
     }
 }
 
+#[derive(Debug)]
 pub struct PNGChunks {
     state: Vec<Chunk>,
 }

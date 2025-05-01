@@ -1,3 +1,4 @@
+use ebony::ZLib;
 use ebony::{IDAT, IHDR, bKGD, cHRM, pHYs, tEXt};
 use ebony::{PNGChunks, PNGData, RawPNG};
 
@@ -10,20 +11,21 @@ const TEST_FILE: &str = "samples/test3.png";
 fn main() {
     let mut raw = RawPNG::from_file_name(TEST_FILE).unwrap();
     let mut chunks = PNGChunks::from_raw(raw);
-    panic!(
-        "{:#?}",
-        chunks
-            .chunks()
-            .into_iter()
-            .map(|c| c.crc())
-            .collect::<Vec<[u8; 4]>>()
-    );
+    // println!(
+    //     "{:#?}",
+    //     &chunks.chunks()[4].chunk_data::<IDAT>(None).unwrap().data()[..6]
+    // );
 
     println!("{:?}", {
         let mut d = chunks.names();
         d.dedup();
         d
     });
-    let chunks = PNGData::new(chunks);
+
+    let mut chunks = PNGData::new(chunks);
     println!("{:#?}", chunks);
+
+    let data = chunks.concat();
+    let compressed = ZLib::from_stream(data);
+    println!("{}", compressed);
 }

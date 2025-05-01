@@ -48,13 +48,36 @@ impl Chunk {
 
 #[derive(Debug, ChunkData)]
 pub struct IHDR {
+    // width of image
+    // number of samples in a scanline
     width: u32,
+    // height of image
+    // number of scanlines in image data
     height: u32,
+    // size of the idat samples values / plte index values in bits
     bit_depth: u8,
+    // how the idat pixels are stored
     color_type: u8,
+    // compression
     compression_method: u8,
+    // filter
     filter_method: u8,
+    // interlace
     interlace_method: u8,
+}
+
+impl IHDR {
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    pub fn filter_type(&self) -> u8 {
+        self.filter_method
+    }
 }
 
 impl IHDR {
@@ -64,12 +87,22 @@ impl IHDR {
 }
 #[derive(ChunkData)]
 pub struct IDAT {
-    data: Vec<u8>,
+    pub(super) data: Vec<u8>,
 }
 
 impl std::fmt::Debug for IDAT {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.len())
+    }
+}
+
+impl IDAT {
+    pub fn data(self) -> Vec<u8> {
+        self.data
+    }
+
+    pub fn data_matrix(&self, width: u32, height: u32) -> Vec<Vec<u8>> {
+        todo!()
     }
 }
 
@@ -87,7 +120,18 @@ impl IDAT {
     }
 
     fn filter(&self) {}
+
+    // adam7
+    // 1 6 4 6 2 6 4 6
+    // 7 7 7 7 7 7 7 7
+    // 5 6 5 6 5 6 5 6
+    // 7 7 7 7 7 7 7 7
+    // 3 6 4 6 3 6 4 6
+    // 7 7 7 7 7 7 7 7
+    // 5 6 5 6 5 6 5 6
+    // 7 7 7 7 7 7 7 7
     fn inerlace(&self) {}
+
     fn compress(&self) {}
 }
 // this chunk has an empty data field; so no fields for this struct
