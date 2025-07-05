@@ -1,5 +1,5 @@
 [package]
-name = "png_chunk_derive_macro"
+name = "png_chunk_data_derive"
 version = "0.1.0"
 edition = "2024"
 
