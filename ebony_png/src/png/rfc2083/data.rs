@@ -1,0 +1,400 @@
+use super::PNGError;
+use super::chunks::Chunk;
+use std::slice::Iter;
+
+use chunk_data::ChunkData;
+
+struct ChunkProcess<'a> {
+    color_type: Option<u8>,
+    data: &'a [u8],
+}
+
+impl ChunkProcess<'_> {
+    fn data(&self) -> &[u8] {
+        self.data
+    }
+
+    fn ct(&self) -> u8 {
+        self.color_type.unwrap()
+    }
+}
+
+impl Chunk {
+    fn process_with_ct<'a>(&'a self, ct: u8) -> ChunkProcess<'a> {
+        ChunkProcess {
+            color_type: Some(ct),
+            data: self.data(),
+        }
+    }
+
+    fn process<'a>(&'a self) -> ChunkProcess<'a> {
+        ChunkProcess {
+            color_type: None,
+            data: self.data(),
+        }
+    }
+
+    pub fn chunk_data<'a, T>(&'a self, ct: Option<u8>) -> Result<T, PNGError>
+    where
+        T: TryFrom<ChunkProcess<'a>, Error = PNGError>,
+    {
+        T::try_from(if let Some(ct) = ct {
+            self.process_with_ct(ct)
+        } else {
+            self.process()
+        })
+    }
+}
+
+#[derive(Debug, ChunkData)]
+pub struct IHDR {
+    // width of image
+    // number of samples in a scanline
+    width: u32,
+    // height of image
+    // number of scanlines in image data
+    height: u32,
+    // size of the idat samples values / plte index values in bits
+    bit_depth: u8,
+    // how the idat pixels are stored
+    color_type: u8,
+    // compression
+    compression_method: u8,
+    // filter
+    filter_method: u8,
+    // interlace
+    interlace_method: u8,
+}
+
+impl IHDR {
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    pub fn filter_type(&self) -> u8 {
+        self.filter_method
+    }
+}
+
+impl IHDR {
+    pub(super) fn color_type(&self) -> u8 {
+        self.color_type
+    }
+}
+#[derive(ChunkData)]
+pub struct IDAT {
+    pub(super) data: Vec<u8>,
+}
+
+impl std::fmt::Debug for IDAT {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.len())
+    }
+}
+
+impl IDAT {
+    pub fn data(self) -> Vec<u8> {
+        self.data
+    }
+
+    pub fn data_matrix(&self, width: u32, height: u32) -> Vec<Vec<u8>> {
+        todo!()
+    }
+}
+
+impl IDAT {
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    pub fn decode(&self, height: u32, width: u32) {
+        let pixels = self
+            .data
+            .chunks(height as usize)
+            .map(|c| c.chunks(width as usize));
+        todo!()
+    }
+
+    fn filter(&self) {}
+
+    // adam7
+    // 1 6 4 6 2 6 4 6
+    // 7 7 7 7 7 7 7 7
+    // 5 6 5 6 5 6 5 6
+    // 7 7 7 7 7 7 7 7
+    // 3 6 4 6 3 6 4 6
+    // 7 7 7 7 7 7 7 7
+    // 5 6 5 6 5 6 5 6
+    // 7 7 7 7 7 7 7 7
+    fn inerlace(&self) {}
+
+    fn compress(&self) {}
+}
+// this chunk has an empty data field; so no fields for this struct
+#[derive(Debug, ChunkData)]
+pub struct IEND {}
+
+// this chunk
+// must appear for color type 3
+// may appear for color type 2 and 6
+// must NOT appear for color type 0 and 4
+#[derive(Debug, PartialEq, ChunkData)]
+pub struct PLTE {
+    // range from 1 to 256
+    entries: Vec<[u8; 3]>,
+}
+
+impl PLTE {
+    pub fn sample(entries: Vec<[u8; 3]>) -> Self {
+        Self { entries }
+    }
+}
+
+#[derive(Debug, ChunkData)]
+pub struct cHRM {
+    white_point_x: u32,
+    white_point_y: u32,
+    red_x: u32,
+    red_y: u32,
+    green_x: u32,
+    green_y: u32,
+    blue_x: u32,
+    blue_y: u32,
+}
+
+const DIVISOR: f64 = 100_000.0;
+const INCH: f64 = 0.0254; // in meters
+
+impl cHRM {
+    fn white_point(&self) -> [f64; 2] {
+        [
+            self.white_point_x as f64 / DIVISOR,
+            self.white_point_y as f64 / DIVISOR,
+        ]
+    }
+
+    fn red(&self) -> [f64; 2] {
+        [self.red_x as f64 / DIVISOR, self.red_y as f64 / DIVISOR]
+    }
+
+    fn green(&self) -> [f64; 2] {
+        [self.green_x as f64 / DIVISOR, self.green_y as f64 / DIVISOR]
+    }
+
+    fn blue(&self) -> [f64; 2] {
+        [self.blue_x as f64 / DIVISOR, self.blue_y as f64 / DIVISOR]
+    }
+}
+
+#[derive(Debug, ChunkData)]
+pub enum bKGD {
+    // add derive attribute :value from ct // would deprecate EnumChunk trait
+    #[color_type(0)]
+    ColorType0 { gray: u16 },
+    #[color_type(2)]
+    ColorType2 { red: u16, green: u16, blue: u16 },
+    #[color_type(3)]
+    ColorType3 { palette_index: u8 },
+    #[color_type(4)]
+    ColorType4 { gray: u16 },
+    #[color_type(6)]
+    ColorType6 { red: u16, green: u16, blue: u16 },
+}
+
+#[derive(Debug, ChunkData)]
+pub struct gAMA {
+    image_gamma: u32,
+}
+
+impl gAMA {
+    fn image_gamma(&self) -> f64 {
+        self.image_gamma as f64 / DIVISOR
+    }
+}
+
+// this reflects the palette chunk
+// must be between plte and first idat
+#[derive(Debug, ChunkData)]
+pub struct hIST {
+    entries: Vec<u16>,
+}
+
+#[derive(Debug, ChunkData)]
+pub struct pHYs {
+    // pixels per unit x axis
+    x_ppu: u32,
+    y_ppu: u32,
+    unit_specifier: u8,
+}
+
+// must not contain more alpha values than there are palette PLTE entries
+// ut can contain fewer, in which case the unspecified values all default to 255
+// this chunk must come between plte and first idat
+#[derive(Debug, ChunkData)]
+pub enum tRNS {
+    #[color_type(3)]
+    AlphaValues(Vec<u8>),
+    #[color_type(0)]
+    // from 0 to (2^bitdepth) - 1
+    Gray(u16),
+    #[color_type(2)]
+    RGB { red: u16, green: u16, blue: u16 },
+    // color type 4 and 6 are prohibited since a full alpha channel is present in those cases
+}
+
+// should use UTC rather than GMT
+#[derive(Debug, ChunkData)]
+pub struct tIME {
+    year: u16,
+    // 1-12
+    month: u8,
+    // 1-31
+    day: u8,
+    // 0-23
+    hour: u8,
+    // 0-59
+    minute: u8,
+    // 0-60 (60 for leap secondl not 61)
+    second: u8,
+}
+
+#[derive(Debug, ChunkData)]
+pub enum sBIT {
+    #[color_type(0)]
+    ColorType0(u8),
+    #[color_type(2)]
+    ColorType2 { r: u8, g: u8, b: u8 },
+    #[color_type(3)]
+    ColorType3 { r: u8, g: u8, b: u8 },
+    #[color_type(4)]
+    ColorType4 { grayscale: u8, alpha: u8 },
+    #[color_type(6)]
+    ColorType6 { r: u8, g: u8, b: u8, a: u8 },
+}
+
+#[derive(Debug, ChunkData)]
+pub struct tEXt {
+    // #[len(>= 1, <= 79)]
+    #[delimiter(0)]
+    keyword: Vec<u8>,
+    text: Vec<u8>,
+}
+
+impl tEXt {
+    pub fn keyword(&self) -> &[u8] {
+        &self.keyword
+    }
+
+    pub fn text(&self) -> &[u8] {
+        &self.text
+    }
+
+    pub fn parse(&self) -> [std::borrow::Cow<'_, str>; 2] {
+        [
+            String::from_utf8_lossy(self.keyword()),
+            String::from_utf8_lossy(self.text()),
+        ]
+    }
+}
+
+// same as tEXt chunk but zTXT makes use of compression
+// recommended over tEXt for storing large chunks of text data
+#[derive(Debug, ChunkData)]
+pub struct zTXT {
+    #[delimiter(0)]
+    keyword: Vec<u8>,
+    compression_method: u8,
+    compressed_text: Vec<u8>,
+}
+fn stream_octets_to_u32(octets: &mut Iter<u8>) -> u32 {
+    (0..4)
+        .into_iter()
+        .map(|_| octets.next().unwrap())
+        .fold(0u32, |mut mask, b| {
+            mask <<= 8;
+            mask |= *b as u32;
+
+            mask
+        })
+}
+
+fn stream_octets_to_u64(octets: &mut Iter<u8>) -> u64 {
+    (0..8)
+        .into_iter()
+        .map(|_| octets.next().unwrap())
+        .fold(0u64, |mut mask, b| {
+            mask <<= 8;
+            mask |= *b as u64;
+
+            mask
+        })
+}
+
+fn stream_octets_to_u16(octets: &mut Iter<u8>) -> u16 {
+    (0..2)
+        .into_iter()
+        .map(|_| octets.next().unwrap())
+        .fold(0u16, |mut mask, b| {
+            mask <<= 8;
+            mask |= *b as u16;
+
+            mask
+        })
+}
+
+fn stream_vecu8(octets: &mut Iter<u8>, delim: Option<u8>) -> Vec<u8> {
+    match delim {
+        Some(delim) => octets.take_while(|b| **b != delim).map(|b| *b).collect(),
+        None => octets.map(|b| *b).collect(),
+    }
+}
+
+fn stream_vecu16(octets: &mut Iter<u8>, delim: Option<u8>) -> Vec<u16> {
+    match delim {
+        Some(delim) => octets
+            .take_while(|b| **b != delim)
+            .collect::<Vec<&u8>>()
+            .chunks(2)
+            .map(|b| {
+                let mut mask = 0u16;
+                mask |= *b[0] as u16;
+                mask <<= 8;
+                mask |= *b[1] as u16;
+
+                mask
+            })
+            .collect::<Vec<u16>>(),
+        None => octets
+            .collect::<Vec<&u8>>()
+            .chunks(2)
+            .map(|b| {
+                let mut mask = 0u16;
+                mask |= *b[0] as u16;
+                mask <<= 8;
+                mask |= *b[1] as u16;
+
+                mask
+            })
+            .collect::<Vec<u16>>(),
+    }
+}
+
+fn stream_vec_arr_u8_3(octets: &mut Iter<u8>, delim: Option<u8>) -> Vec<[u8; 3]> {
+    match delim {
+        Some(delim) => octets
+            .take_while(|b| **b != delim)
+            .collect::<Vec<&u8>>()
+            .chunks(3)
+            .map(|b| [*b[0], *b[1], *b[2]])
+            .collect::<Vec<[u8; 3]>>(),
+        None => octets
+            .collect::<Vec<&u8>>()
+            .chunks(3)
+            .map(|b| [*b[0], *b[1], *b[2]])
+            .collect::<Vec<[u8; 3]>>(),
+    }
+}
