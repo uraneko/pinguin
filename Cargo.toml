@@ -1,7 +1,7 @@
 [package]
-name = "ebony"
+name = "ebony_png"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-chunk_data = { path = "../png_chunk_derive_macro", package = "png_chunk_derive_macro" }
+chunk_data = { path = "../png_chunk_data_derive", package = "png_chunk_data_derive" }

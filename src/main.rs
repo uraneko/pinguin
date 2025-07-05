@@ -1,6 +1,6 @@
-use ebony::ZLib;
-use ebony::{IDAT, IHDR, bKGD, cHRM, pHYs, tEXt};
-use ebony::{PNGChunks, PNGData, RawPNG};
+use ebony_png::ZLib;
+use ebony_png::{IDAT, IHDR, bKGD, cHRM, pHYs, tEXt};
+use ebony_png::{PNGChunks, PNGData, RawPNG};
 
 const TEST_FILE: &str = "samples/test3.png";
 
