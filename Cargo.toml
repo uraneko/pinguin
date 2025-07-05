@@ -1,0 +1,3 @@
+[workspace]
+resolver = "3"
+members = ["ebony", "ebony_png", "png_chunk_derive_macro"]
